@@ -5,7 +5,6 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:fl_chart/fl_chart.dart';
-import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:screenshot/screenshot.dart';
@@ -37,7 +36,75 @@ class _HomePageState extends State<HomePage> {
   List<Map<String, dynamic>> reversedData = [];
   List<Map<String, dynamic>> randomData = [];
 
+  double bestK = 0;
+  double avgK = 0;
+  double worstK = 0;
+  double executionTime = 0;
+  String explanation = "";
+
   final String baseUrl = "http://localhost:5000";
+
+  // ================= QUICK BUTTONS =================
+  void loadBubbleSort() {
+    codeController.text = '''
+(arr) => {
+  for (let i = 0; i < arr.length; i++) {
+    for (let j = 0; j < arr.length - i - 1; j++) {
+      if (arr[j] > arr[j + 1]) {
+        let temp = arr[j];
+        arr[j] = arr[j + 1];
+        arr[j + 1] = temp;
+      }
+    }
+  }
+  return arr;
+}
+''';
+  }
+
+  void loadMergeSort() {
+    codeController.text = '''
+(arr) => {
+  function mergeSort(arr) {
+    if (arr.length <= 1) return arr;
+
+    const mid = Math.floor(arr.length / 2);
+    const left = mergeSort(arr.slice(0, mid));
+    const right = mergeSort(arr.slice(mid));
+
+    const result = [];
+    let i = 0, j = 0;
+
+    while (i < left.length && j < right.length) {
+      if (left[i] < right[j]) result.push(left[i++]);
+      else result.push(right[j++]);
+    }
+
+    return result.concat(left.slice(i)).concat(right.slice(j));
+  }
+
+  return mergeSort(arr);
+}
+''';
+  }
+
+  void loadBinarySearch() {
+    codeController.text = '''
+(arr) => {
+  let target = arr[Math.floor(arr.length / 2)];
+  let left = 0, right = arr.length - 1;
+
+  while (left <= right) {
+    let mid = Math.floor((left + right) / 2);
+    if (arr[mid] === target) return mid;
+    if (arr[mid] < target) left = mid + 1;
+    else right = mid - 1;
+  }
+
+  return -1;
+}
+''';
+  }
 
   // ================= ANALYZE =================
   Future<void> analyze() async {
@@ -55,7 +122,6 @@ class _HomePageState extends State<HomePage> {
     try {
       List<num> parsedArray = [];
 
-      // ================= SAFE PARSING (FIX) =================
       if (isManual) {
         final raw = inputArrayController.text
             .replaceAll("[", "")
@@ -77,6 +143,8 @@ class _HomePageState extends State<HomePage> {
         }),
       );
 
+      if (!mounted) return;
+
       final data = jsonDecode(res.body);
 
       if (data["error"] != null) {
@@ -88,7 +156,6 @@ class _HomePageState extends State<HomePage> {
 
       final graph = data["chart"] ?? {};
 
-      // ================= FULL STATE UPDATE (FIX CORE ISSUE) =================
       setState(() {
         best = data["bestCase"] ?? "—";
         avg = data["averageCase"] ?? "—";
@@ -98,19 +165,40 @@ class _HomePageState extends State<HomePage> {
         reversedData = List<Map<String, dynamic>>.from(graph["reversed"] ?? []);
         randomData = List<Map<String, dynamic>>.from(graph["random"] ?? []);
 
+        bestK = (data["debug"]?["slopes"]?["bestK"] ?? 0).toDouble();
+        avgK = (data["debug"]?["slopes"]?["avgK"] ?? 0).toDouble();
+        worstK = (data["debug"]?["slopes"]?["worstK"] ?? 0).toDouble();
+
+        executionTime = (data["executionTimeMs"] ?? 0).toDouble();
+
+        explanation = buildExplanation();
+
         confidence = (data["debug"]?["slopes"]?["bestK"] != null) ? 85 : 70;
       });
 
-      // ================= MANUAL RESULT DIALOG (KEPT FEATURE) =================
       if (isManual) {
-        // لا popup — النتائج كلها في الـUI الأساسي
         debugPrint("Manual output: ${data["output"]}");
       }
     } catch (e) {
       debugPrint("ERROR: $e");
     } finally {
+      if (!mounted) return;
       setState(() => loading = false);
     }
+  }
+
+  // ================= EXPLANATION =================
+  String buildExplanation() {
+    if (best.contains("n^2") || worst.contains("n^2")) {
+      return "Detected due to nested loops";
+    }
+    if (best.contains("log n")) {
+      return "Detected logarithmic growth";
+    }
+    if (best == "O(n)") {
+      return "Linear behavior detected";
+    }
+    return "Based on runtime + AST";
   }
 
   // ================= GRAPH =================
@@ -121,54 +209,82 @@ class _HomePageState extends State<HomePage> {
     }).toList();
   }
 
-  // ================= PDF (UNCHANGED FEATURE) =================
+  // ================= PDF (UNCHANGED) =================
   Future<void> exportPDF() async {
     final pdf = pw.Document();
 
     Uint8List? img = await screenshotController.capture();
     final image = img != null ? pw.MemoryImage(img) : null;
 
-    final minLen = [
-      sortedData.length,
-      reversedData.length,
-      randomData.length,
-    ].reduce(min);
-
     pdf.addPage(
       pw.Page(
         build: (_) => pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
-            pw.Text("Algorithm Report", style: pw.TextStyle(fontSize: 20)),
-            pw.SizedBox(height: 10),
+            // ================= TITLE =================
+            pw.Text(
+              "Algorithm Performance Report",
+              style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold),
+            ),
+
+            pw.SizedBox(height: 15),
+
+            // ================= CODE =================
+            pw.Text("1. Source Code", style: pw.TextStyle(fontSize: 18)),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(8),
+              margin: const pw.EdgeInsets.only(top: 5, bottom: 10),
+              decoration: pw.BoxDecoration(border: pw.Border.all()),
+              child: pw.Text(codeController.text),
+            ),
+
+            // ================= RESULTS =================
+            pw.Text("2. Complexity Results", style: pw.TextStyle(fontSize: 18)),
             pw.Text("Best Case: $best"),
             pw.Text("Average Case: $avg"),
             pw.Text("Worst Case: $worst"),
-            pw.Text("Confidence: $confidence%"),
+
             pw.SizedBox(height: 10),
-            pw.Text("Input Code:"),
-            pw.Container(
-              padding: const pw.EdgeInsets.all(8),
-              color: PdfColors.grey300,
-              child: pw.Text(codeController.text),
+
+            // ================= CONFIDENCE =================
+            pw.Text("Confidence Score: $confidence%"),
+
+            pw.SizedBox(height: 10),
+
+            // ================= K VALUES =================
+            pw.Text(
+              "3. Growth Factors (k-values)",
+              style: pw.TextStyle(fontSize: 18),
             ),
+            pw.Text("Best k: ${bestK.toStringAsFixed(3)}"),
+            pw.Text("Avg k: ${avgK.toStringAsFixed(3)}"),
+            pw.Text("Worst k: ${worstK.toStringAsFixed(3)}"),
+
             pw.SizedBox(height: 10),
-            if (image != null) pw.Image(image),
+
+            // ================= EXECUTION TIME =================
+            pw.Text("Execution Time: ${executionTime.toStringAsFixed(4)} ms"),
+
             pw.SizedBox(height: 10),
-            pw.Text("Test Table:"),
-            pw.Table.fromTextArray(
-              data: [
-                ["n", "sorted", "reversed", "random"],
-                ...List.generate(minLen, (i) {
-                  return [
-                    sortedData[i]["n"].toString(),
-                    (sortedData[i]["t"] as num).toStringAsFixed(4),
-                    (reversedData[i]["t"] as num).toStringAsFixed(4),
-                    (randomData[i]["t"] as num).toStringAsFixed(4),
-                  ];
-                }),
-              ],
+
+            // ================= EXPLANATION =================
+            pw.Text(
+              "4. Analysis Explanation",
+              style: pw.TextStyle(fontSize: 18),
             ),
+            pw.Text(explanation),
+
+            pw.SizedBox(height: 15),
+
+            // ================= GRAPH =================
+            if (image != null) ...[
+              pw.Text(
+                "5. Performance Graph",
+                style: pw.TextStyle(fontSize: 18),
+              ),
+              pw.SizedBox(height: 10),
+              pw.Image(image),
+            ],
           ],
         ),
       ),
@@ -190,49 +306,52 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-
       body: Padding(
         padding: const EdgeInsets.all(12),
-        child: Column(
-          children: [
-            // MODE
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Text("Auto"),
-                Switch(
-                  value: isManual,
-                  onChanged: (v) => setState(() => isManual = v),
-                ),
-                const Text("Manual"),
-              ],
-            ),
-
-            // CODE
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1E1E1E),
-                borderRadius: BorderRadius.circular(10),
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              // MODE
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text("Auto"),
+                  Switch(
+                    value: isManual,
+                    onChanged: (v) => setState(() => isManual = v),
+                  ),
+                  const Text("Manual"),
+                ],
               ),
-              child: TextField(
-                controller: codeController,
-                maxLines: 7,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontFamily: "monospace",
-                ),
-                decoration: const InputDecoration(
-                  border: InputBorder.none,
-                  hintText: "// Write your algorithm here...",
-                  hintStyle: TextStyle(color: Colors.grey),
+
+              const SizedBox(height: 10),
+
+              // 🆕 BUTTONS
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    ElevatedButton(
+                      onPressed: loadBubbleSort,
+                      child: const Text("Bubble Sort"),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: loadMergeSort,
+                      child: const Text("Merge Sort"),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: loadBinarySearch,
+                      child: const Text("Binary Search"),
+                    ),
+                  ],
                 ),
               ),
-            ),
 
-            const SizedBox(height: 10),
+              const SizedBox(height: 10),
 
-            if (isManual)
+              // CODE (كما هو)
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -240,88 +359,102 @@ class _HomePageState extends State<HomePage> {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: TextField(
-                  controller: inputArrayController,
-                  style: const TextStyle(color: Colors.white),
+                  controller: codeController,
+                  maxLines: 7,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontFamily: "monospace",
+                  ),
                   decoration: const InputDecoration(
                     border: InputBorder.none,
-                    hintText: "[1, 5, 3, 2]",
+                    hintText: "// Write your algorithm here...",
                     hintStyle: TextStyle(color: Colors.grey),
                   ),
                 ),
               ),
 
-            const SizedBox(height: 10),
+              const SizedBox(height: 10),
 
-            ElevatedButton(
-              onPressed: loading ? null : analyze,
-              child: loading
-                  ? const CircularProgressIndicator(strokeWidth: 2)
-                  : const Text("Run"),
-            ),
-
-            const SizedBox(height: 10),
-
-            // BEST / AVG / WORST (UNCHANGED FEATURE)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                chip("Best", best, Colors.green),
-                chip("Avg", avg, Colors.blue),
-                chip("Worst", worst, Colors.red),
-              ],
-            ),
-
-            const SizedBox(height: 10),
-
-            Text("Confidence: $confidence%"),
-
-            const SizedBox(height: 10),
-
-            // LEGEND (UNCHANGED)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                legend("Sorted", Colors.green),
-                const SizedBox(width: 10),
-                legend("Reversed", Colors.blue),
-                const SizedBox(width: 10),
-                legend("Random", Colors.red),
-              ],
-            ),
-
-            const SizedBox(height: 10),
-
-            ElevatedButton(
-              onPressed: sortedData.isEmpty ? null : exportPDF,
-              child: const Text("Export PDF"),
-            ),
-
-            const SizedBox(height: 10),
-
-            // GRAPH (FIXED RELIABLE UPDATE)
-            Expanded(
-              child: Screenshot(
-                controller: screenshotController,
-                child: sortedData.isEmpty
-                    ? const Center(child: Text("No data yet"))
-                    : LineChart(
-                        LineChartData(
-                          minY: 0,
-                          gridData: FlGridData(show: true),
-                          borderData: FlBorderData(
-                            show: true,
-                            border: Border.all(color: Colors.grey),
-                          ),
-                          lineBarsData: [
-                            line(spots(sortedData), Colors.green),
-                            line(spots(reversedData), Colors.blue),
-                            line(spots(randomData), Colors.red),
-                          ],
-                        ),
-                      ),
+              ElevatedButton(
+                onPressed: loading ? null : analyze,
+                child: loading
+                    ? const CircularProgressIndicator(strokeWidth: 2)
+                    : const Text("Run"),
               ),
-            ),
-          ],
+              ElevatedButton(
+                onPressed: sortedData.isEmpty ? null : exportPDF,
+                child: const Text("Export PDF"),
+              ),
+
+              const SizedBox(height: 10),
+
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  chip("Best", best, Colors.green),
+                  chip("Avg", avg, Colors.blue),
+                  chip("Worst", worst, Colors.red),
+                ],
+              ),
+
+              const SizedBox(height: 10),
+
+              Text("Confidence: $confidence%"),
+
+              // 🆕 k values + explanation
+              Text(
+                "k(best): ${bestK.toStringAsFixed(2)} | k(avg): ${avgK.toStringAsFixed(2)} | k(worst): ${worstK.toStringAsFixed(2)}",
+              ),
+              Text(explanation),
+
+              if (isManual) ...[
+                Text("Execution Time: ${executionTime.toStringAsFixed(4)} ms"),
+                const SizedBox(height: 8),
+
+                TextField(
+                  controller: inputArrayController,
+                  decoration: const InputDecoration(
+                    labelText: "Input Array",
+                    hintText: "1, 2, 3, 4",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 10),
+
+              Container(
+                height: 400,
+                child: Screenshot(
+                  controller: screenshotController,
+                  child: sortedData.isEmpty
+                      ? const Center(child: Text("No data yet"))
+                      : LineChart(
+                          LineChartData(
+                            titlesData: FlTitlesData(
+                              bottomTitles: AxisTitles(
+                                axisNameWidget: const Text("Input Size (n)"),
+                              ),
+                              leftTitles: AxisTitles(
+                                axisNameWidget: const Text("log(Time)"),
+                              ),
+                            ),
+                            minY: 0,
+                            gridData: FlGridData(show: true),
+                            borderData: FlBorderData(
+                              show: true,
+                              border: Border.all(color: Colors.grey),
+                            ),
+                            lineBarsData: [
+                              line(spots(sortedData), Colors.green),
+                              line(spots(reversedData), Colors.blue),
+                              line(spots(randomData), Colors.red),
+                            ],
+                          ),
+                        ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
