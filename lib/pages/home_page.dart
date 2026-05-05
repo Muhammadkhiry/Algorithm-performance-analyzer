@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:fl_chart/fl_chart.dart';
+import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:screenshot/screenshot.dart';
@@ -213,84 +214,107 @@ class _HomePageState extends State<HomePage> {
   Future<void> exportPDF() async {
     final pdf = pw.Document();
 
-    Uint8List? img = await screenshotController.capture();
-    final image = img != null ? pw.MemoryImage(img) : null;
+    try {
+      await Future.delayed(const Duration(milliseconds: 400));
 
-    pdf.addPage(
-      pw.Page(
-        build: (_) => pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            // ================= TITLE =================
-            pw.Text(
-              "Algorithm Performance Report",
-              style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold),
-            ),
+      final Uint8List? img = await screenshotController.capture(
+        delay: const Duration(milliseconds: 200),
+      );
 
-            pw.SizedBox(height: 15),
+      final image = img != null ? pw.MemoryImage(img) : null;
 
-            // ================= CODE =================
-            pw.Text("1. Source Code", style: pw.TextStyle(fontSize: 18)),
-            pw.Container(
-              padding: const pw.EdgeInsets.all(8),
-              margin: const pw.EdgeInsets.only(top: 5, bottom: 10),
-              decoration: pw.BoxDecoration(border: pw.Border.all()),
-              child: pw.Text(codeController.text),
-            ),
-
-            // ================= RESULTS =================
-            pw.Text("2. Complexity Results", style: pw.TextStyle(fontSize: 18)),
-            pw.Text("Best Case: $best"),
-            pw.Text("Average Case: $avg"),
-            pw.Text("Worst Case: $worst"),
-
-            pw.SizedBox(height: 10),
-
-            // ================= CONFIDENCE =================
-            pw.Text("Confidence Score: $confidence%"),
-
-            pw.SizedBox(height: 10),
-
-            // ================= K VALUES =================
-            pw.Text(
-              "3. Growth Factors (k-values)",
-              style: pw.TextStyle(fontSize: 18),
-            ),
-            pw.Text("Best k: ${bestK.toStringAsFixed(3)}"),
-            pw.Text("Avg k: ${avgK.toStringAsFixed(3)}"),
-            pw.Text("Worst k: ${worstK.toStringAsFixed(3)}"),
-
-            pw.SizedBox(height: 10),
-
-            // ================= EXECUTION TIME =================
-            pw.Text("Execution Time: ${executionTime.toStringAsFixed(4)} ms"),
-
-            pw.SizedBox(height: 10),
-
-            // ================= EXPLANATION =================
-            pw.Text(
-              "4. Analysis Explanation",
-              style: pw.TextStyle(fontSize: 18),
-            ),
-            pw.Text(explanation),
-
-            pw.SizedBox(height: 15),
-
-            // ================= GRAPH =================
-            if (image != null) ...[
+      pdf.addPage(
+        pw.Page(
+          build: (_) => pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              // ================= TITLE =================
               pw.Text(
-                "5. Performance Graph",
+                "Algorithm Performance Report",
+                style: pw.TextStyle(
+                  fontSize: 24,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+
+              pw.SizedBox(height: 15),
+
+              // ================= CODE =================
+              pw.Text("1. Source Code", style: pw.TextStyle(fontSize: 18)),
+              pw.Container(
+                padding: const pw.EdgeInsets.all(8),
+                margin: const pw.EdgeInsets.only(top: 5, bottom: 10),
+                decoration: pw.BoxDecoration(border: pw.Border.all()),
+                child: pw.Text(codeController.text),
+              ),
+
+              // ================= RESULTS =================
+              pw.Text(
+                "2. Complexity Results",
                 style: pw.TextStyle(fontSize: 18),
               ),
-              pw.SizedBox(height: 10),
-              pw.Image(image),
-            ],
-          ],
-        ),
-      ),
-    );
+              pw.Text("Best Case: $best"),
+              pw.Text("Average Case: $avg"),
+              pw.Text("Worst Case: $worst"),
 
-    await Printing.layoutPdf(onLayout: (_) => pdf.save());
+              pw.SizedBox(height: 10),
+
+              pw.Text("Confidence Score: $confidence%"),
+
+              pw.SizedBox(height: 10),
+
+              // ================= K VALUES =================
+              pw.Text(
+                "3. Growth Factors (k-values)",
+                style: pw.TextStyle(fontSize: 18),
+              ),
+              pw.Text("Best k: ${bestK.toStringAsFixed(3)}"),
+              pw.Text("Avg k: ${avgK.toStringAsFixed(3)}"),
+              pw.Text("Worst k: ${worstK.toStringAsFixed(3)}"),
+
+              pw.SizedBox(height: 10),
+
+              // ================= EXECUTION TIME =================
+              pw.Text("Execution Time: ${executionTime.toStringAsFixed(4)} ms"),
+
+              pw.SizedBox(height: 10),
+
+              // ================= EXPLANATION =================
+              pw.Text(
+                "4. Analysis Explanation",
+                style: pw.TextStyle(fontSize: 18),
+              ),
+              pw.Text(explanation),
+
+              pw.SizedBox(height: 15),
+
+              // ================= GRAPH =================
+              if (image != null) ...[
+                pw.Text(
+                  "5. Performance Graph",
+                  style: pw.TextStyle(fontSize: 18),
+                ),
+                pw.SizedBox(height: 10),
+                pw.Container(
+                  height: 300,
+                  child: pw.Image(image, fit: pw.BoxFit.contain),
+                ),
+              ] else ...[
+                pw.Text(
+                  "5. Performance Graph",
+                  style: pw.TextStyle(fontSize: 18, color: PdfColors.red),
+                ),
+                pw.Text("Graph capture failed"),
+              ],
+            ],
+          ),
+        ),
+      );
+
+      await Printing.layoutPdf(onLayout: (_) => pdf.save());
+    } catch (e) {
+      debugPrint("PDF Export Error: $e");
+    }
   }
 
   // ================= UI =================
